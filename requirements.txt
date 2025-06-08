@@ -1,0 +1,35 @@
+# Core dependencies
+gradio>=4.0.0
+PyMuPDF>=1.23.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+llama-cpp-python>=0.2.0
+torch>=2.0.0
+huggingface-hub>=0.17.0
+requests>=2.31.0
+tqdm>=4.66.0
+
+# PDF processing
+pdf2image>=3.1.0
+pytesseract>=0.3.10
+
+# Image processing (optional but recommended for OCR)
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# System dependencies (install via system package manager)
+# For Ubuntu/Debian:
+# sudo apt-get update
+# sudo apt-get install -y tesseract-ocr tesseract-ocr-eng poppler-utils
+
+# For macOS:
+# brew install tesseract poppler
+
+# For Windows:
+# Download Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki
+# Download Poppler from: https://github.com/oschwartz10612/poppler-windows/releases/
+
+# GPU support (CUDA) - uncomment if you have NVIDIA GPU
+# torch>=2.0.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+# For llama-cpp-python with CUDA support, install with:
+# CMAKE_ARGS="-DLLAMA_CUBLAS=on" pip install llama-cpp-python --upgrade --force-reinstall --no-cache-dir

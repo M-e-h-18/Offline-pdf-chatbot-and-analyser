@@ -1,6 +1,3 @@
-Here's the complete, fully functional GPU-optimized PDF Assistant code with all the improvements we've discussed:
-
-```python
 import os
 import fitz
 import gradio as gr
@@ -17,6 +14,9 @@ from functools import lru_cache
 import logging
 import torch
 from typing import List, Tuple, Dict, Any
+from huggingface_hub import hf_hub_download
+import requests
+from tqdm import tqdm
 
 # ----- Configuration -----
 class Config:
@@ -30,6 +30,11 @@ class Config:
     MAIN_GPU = 0  # Main GPU index
     USE_GPU = False  # Will be set based on availability
     N_THREADS = 4 if not torch.cuda.is_available() else 1  # Threads based on GPU
+    MODEL_DIR = "models"  # Directory to store downloaded models
+    LLM_MODEL = "Hermes-2-Pro-Mistral-7B.Q2_K.gguf"
+    LLM_REPO = "TheBloke/Hermes-2-Pro-Mistral-7B-GGUF"
+    EMBED_MODEL = "bge-large-en-v1.5-f16.gguf"
+    EMBED_REPO = "CompendiumLabs/bge-large-en-v1.5-gguf"
 
 # Setup logging
 logging.basicConfig(
@@ -41,6 +46,9 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Create models directory if it doesn't exist
+os.makedirs(Config.MODEL_DIR, exist_ok=True)
 
 # Check GPU availability
 try:
@@ -54,11 +62,57 @@ except Exception as e:
     logger.error(f"GPU detection failed: {str(e)}")
     Config.USE_GPU = False
 
-# Initialize models with GPU optimization if available
+def download_file(url, filename):
+    """Download a file with progress bar"""
+    response = requests.get(url, stream=True)
+    total_size = int(response.headers.get('content-length', 0))
+    
+    with open(filename, 'wb') as f, tqdm(
+        desc=filename,
+        total=total_size,
+        unit='iB',
+        unit_scale=True,
+        unit_divisor=1024,
+    ) as bar:
+        for data in response.iter_content(chunk_size=1024):
+            size = f.write(data)
+            bar.update(size)
+
+def download_model(repo_id, filename):
+    """Download model from HuggingFace Hub"""
+    model_path = os.path.join(Config.MODEL_DIR, filename)
+    
+    if not os.path.exists(model_path):
+        logger.info(f"Downloading {filename}...")
+        try:
+            hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                local_dir=Config.MODEL_DIR,
+                local_dir_use_symlinks=False,
+                resume_download=True
+            )
+            logger.info(f"Downloaded {filename} successfully")
+        except Exception as e:
+            logger.error(f"Failed to download {filename}: {str(e)}")
+            raise
+    else:
+        logger.info(f"Model {filename} already exists, skipping download")
+    
+    return model_path
+
+# Download models
 try:
-    llm = Llama.from_pretrained(
-        repo_id="NousResearch/Hermes-2-Pro-Mistral-7B-GGUF",
-        filename="Hermes-2-Pro-Mistral-7B.Q2_K.gguf",
+    llm_path = download_model(Config.LLM_REPO, Config.LLM_MODEL)
+    embed_path = download_model(Config.EMBED_REPO, Config.EMBED_MODEL)
+except Exception as e:
+    logger.error(f"Model download failed: {str(e)}")
+    raise
+
+# Initialize models
+try:
+    llm = Llama(
+        model_path=llm_path,
         n_ctx=Config.LLM_N_CTX,
         n_gpu_layers=Config.GPU_LAYERS if Config.USE_GPU else 0,
         main_gpu=Config.MAIN_GPU if Config.USE_GPU else 0,
@@ -72,15 +126,15 @@ except Exception as e:
     raise
 
 try:
-    embedding_model = Llama.from_pretrained(
-        repo_id="CompendiumLabs/bge-large-en-v1.5-gguf",
-        filename="bge-large-en-v1.5-f16.gguf",
+    embedding_model = Llama(
+        model_path=embed_path,
         n_ctx=Config.LLM_N_CTX,
         n_gpu_layers=Config.GPU_LAYERS if Config.USE_GPU else 0,
         main_gpu=Config.MAIN_GPU if Config.USE_GPU else 0,
         n_threads=Config.N_THREADS,
         seed=42,
-        verbose=False
+        verbose=False,
+        embedding=True
     )
     logger.info(f"Embedding model loaded {'with GPU acceleration' if Config.USE_GPU else 'on CPU'}")
 except Exception as e:
@@ -393,7 +447,7 @@ class PDFAssistant:
                 return "No text found in selected PDFs."
             
             combined_embeds = np.vstack(combined_embeds)
-            return answer_question(question, combined_docs, combined_embeds)
+            return answer_question(question,combined_docs, combined_embeds)
         except Exception as e:
             logger.error(f"Question answering error: {str(e)}")
             return f"Failed to answer question: {str(e)}"
@@ -449,3 +503,117 @@ with gr.Blocks(title="Advanced PDF Assistant with GPU", theme="soft") as demo:
             )
         with gr.Row():
             upload_btn = gr.Button("Process PDFs", variant="primary")
+            clear_btn = gr.Button("Clear All", variant="secondary")
+        upload_status = gr.Textbox(label="Status", interactive=False)
+    
+    with gr.Tab("📝 Summarize"):
+        with gr.Row():
+            pdf_list_summarize = gr.CheckboxGroup(
+                [],
+                label="Select PDFs to Summarize",
+                elem_classes="checkbox-group"
+            )
+        with gr.Row():
+            summarize_btn = gr.Button("Generate Summary", variant="primary")
+            cancel_sum = gr.Button("Cancel", variant="stop")
+        summarize_output = gr.Markdown(label="Summary Output")
+    
+    with gr.Tab("💬 Chatbot"):
+        with gr.Row():
+            pdf_list_chat = gr.CheckboxGroup(
+                [],
+                label="Select PDFs to Query",
+                elem_classes="checkbox-group"
+            )
+        question_input = gr.Textbox(
+            label="Ask a question about selected PDFs",
+            placeholder="What is the main topic of this document?"
+        )
+        with gr.Row():
+            ask_btn = gr.Button("Ask Question", variant="primary")
+            cancel_qa = gr.Button("Cancel", variant="stop")
+        answer_output = gr.Markdown(label="Answer")
+    
+    with gr.Tab("🔍 Compare PDFs"):
+        with gr.Row():
+            pdf_list_compare1 = gr.Dropdown(
+                [],
+                label="Select First PDF",
+                interactive=True
+            )
+            pdf_list_compare2 = gr.Dropdown(
+                [],
+                label="Select Second PDF",
+                interactive=True
+            )
+        compare_btn = gr.Button("Compare PDFs", variant="primary")
+        compare_output = gr.HTML(label="Comparison Results")
+
+    # Callbacks
+    def process_upload(files):
+        msg, list1, list2, list3 = assistant.upload_pdfs(files)
+        return msg, gr.CheckboxGroup(choices=list1), gr.CheckboxGroup(choices=list2), gr.Dropdown(choices=list1)
+
+    def refresh_info():
+        return assistant.get_system_info()
+
+    # Event handlers
+    upload_btn.click(
+        process_upload,
+        inputs=upload,
+        outputs=[upload_status, pdf_list_summarize, pdf_list_chat, pdf_list_compare1]
+    )
+    
+    clear_btn.click(
+        lambda: [None, "", gr.CheckboxGroup(choices=[]), gr.CheckboxGroup(choices=[]), gr.Dropdown(choices=[])],
+        outputs=[upload, upload_status, pdf_list_summarize, pdf_list_chat, pdf_list_compare1]
+    )
+    
+    refresh_btn.click(
+        refresh_info,
+        outputs=sys_info
+    )
+    
+    summarize_btn.click(
+        assistant.summarize_selected,
+        inputs=pdf_list_summarize,
+        outputs=summarize_output
+    )
+    
+    cancel_sum.click(
+        assistant.cancel_long_task,
+        outputs=summarize_output
+    )
+    
+    ask_btn.click(
+        assistant.ask_question,
+        inputs=[question_input, pdf_list_chat],
+        outputs=answer_output
+    )
+    
+    cancel_qa.click(
+        assistant.cancel_long_task,
+        outputs=answer_output
+    )
+    
+    compare_btn.click(
+        assistant.compare_selected,
+        inputs=[pdf_list_compare1, pdf_list_compare2],
+        outputs=compare_output
+    )
+
+    # Cleanup on close
+    demo.unload(assistant.clear_resources)
+
+# Launch the app
+if __name__ == "__main__":
+    try:
+        demo.launch(
+            server_name="0.0.0.0",
+            server_port=7860,
+            enable_queue=True,
+            share=False
+        )
+    except Exception as e:
+        logger.error(f"Application failed to start: {str(e)}")
+        raise

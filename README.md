@@ -189,6 +189,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Tesseract](https://github.com/tesseract-ocr/tesseract) for OCR capabilities
 - [Hugging Face](https://huggingface.co/) for model hosting
 
+- https://www.kaggle.com/code/liv0oid/notebook848a56a6fb/edit(kaggle notebook link)
+
 
 
 

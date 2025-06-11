@@ -1,5 +1,3 @@
-# FINAL PRO-TIER CODE - With the definitive UI visibility bugfix. All styling is removed to guarantee components are visible.
-
 import os
 import fitz  # PyMuPDF
 import gradio as gr
